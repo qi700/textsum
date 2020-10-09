@@ -1,22 +1,18 @@
-#Most of this file is copied form https://github.com/abisee/pointer-generator/blob/master/batcher.py
-
-import queue as Queue
 import time
-from random import shuffle
-from threading import Thread
+import random
 import torch
 import numpy as np
-
-from log import logger
-import config
-import data
+import tensorflow as tf
+from random import shuffle
+from threading import Thread
 from torch.autograd import Variable
+import queue as Queue
+from log import logger
+import data
+import config
 from config import USE_CUDA, DEVICE
 
-import random
 random.seed(1234)
-
-
 class Example(object):
     def __init__(self, article, abstract_sentences, vocab):
         # Get ids of special tokens
@@ -30,7 +26,7 @@ class Example(object):
             article_words = article_words[:config.max_enc_steps]
         self.enc_len = len(
             article_words
-        )  # store the length after truncation but before padding  
+        )  # store the length after truncation but before padding
         #编码article， 包括oov单词也得跟着编码
         self.enc_input = [
             vocab.word2id(w) for w in article_words
@@ -154,7 +150,7 @@ class Batch(object):
                                   dtype=np.int32)
         self.target_batch = np.zeros((self.batch_size, config.max_dec_steps),
                                      dtype=np.int32)
-        self.dec_padding_mask = np.zeros((self.batch_size, config.max_dec_steps), dtype=np.float32)
+        # self.dec_padding_mask = np.zeros((self.batch_size, config.max_dec_steps), dtype=np.float32)
         self.dec_lens = np.zeros((self.batch_size), dtype=np.int32)
 
         # Fill in the numpy arrays
@@ -162,8 +158,8 @@ class Batch(object):
             self.dec_batch[i, :] = ex.dec_input[:]
             self.target_batch[i, :] = ex.target[:]
             self.dec_lens[i] = ex.dec_len
-            for j in range(ex.dec_len):
-                self.dec_padding_mask[i][j] = 1
+            # for j in range(ex.dec_len):
+            #   self.dec_padding_mask[i][j] = 1
 
     def store_orig_strings(self, example_list):
         self.original_articles = [ex.original_article
@@ -177,7 +173,7 @@ class Batch(object):
 
 
 class Batcher(object):
-    BATCH_QUEUE_MAX = 100  # max number of batches the batch_queue can hold
+    BATCH_QUEUE_MAX = 1000  # max number of batches the batch_queue can hold
 
     def __init__(self, data_path, vocab, mode, batch_size, single_pass):
         self._data_path = data_path
@@ -248,8 +244,8 @@ class Batcher(object):
                 else:
                     raise Exception("single_pass mode is off but the example generator is out of data; error.")
 
-            # abstract_sentences = [sent.strip() for sent in data.abstract2sents(abstract)] # Use the <s> and </s> tags in abstract to get a list of sentences.
-            abstract_sentences = [abstract.strip()]
+            abstract_sentences = [sent.strip() for sent in data.abstract2sents(abstract)] # Use the <s> and </s> tags in abstract to get a list of sentences.
+            #abstract_sentences = [abstract.strip()]
             example = Example(article, abstract_sentences, self._vocab)  # Process into an Example.
             self._example_queue.put(example)  # place the Example in the example queue.
 
@@ -327,6 +323,7 @@ class Batcher(object):
         except Exception as e:
             logger.info(str(e))
             pass
+
 # 解析Batch对象
 def get_input_from_batch(batch):
     """处理batch为模型的输入数据"""

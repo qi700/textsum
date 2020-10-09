@@ -29,13 +29,13 @@ from rouge import Rouge
 
 
 class Train(object):
-    def __init__(self,opt):
+    def __init__(self, opt):
         self.vocab = Vocab(config.vocab_path, config.vocab_size)
         self.batcher = Batcher(config.train_data_path, self.vocab, mode='train',
                                batch_size=config.batch_size, single_pass=False)
-        #time.sleep(15)
+        # time.sleep(15)
         stamp = time.strftime("%Y%m%d_%H%M%S", time.localtime())
-        #train_dir = os.path.join(config.log_root, 'train_{}'.format(stamp))
+        # train_dir = os.path.join(config.log_root, 'train_{}'.format(stamp))
         train_dir = os.path.join(config.log_root, 'train_logs')
         if not os.path.exists(train_dir):
             os.mkdir(train_dir)
@@ -56,8 +56,8 @@ class Train(object):
             'optimizer': self.optimizer.state_dict(),
             'current_loss': running_avg_loss
         }
-        stamp = time.strftime("%Y%m%d_%H%M%S", time.localtime()) 
-        #model_save_path = os.path.join(self.model_dir, 'model_{}_{}'.format(iter_step, stamp))
+        stamp = time.strftime("%Y%m%d_%H%M%S", time.localtime())
+        # model_save_path = os.path.join(self.model_dir, 'model_{}_{}'.format(iter_step, stamp))
         model_save_path = os.path.join(self.model_dir, 'model_{}.tar'.format(iter_step))
         torch.save(state, model_save_path)
 
@@ -77,7 +77,7 @@ class Train(object):
         start_iter, start_loss = 0, 0
         # 如果传入的已存在的模型路径，加载模型继续训练
         if model_file_path is not None:
-            state = torch.load(model_file_path, map_location = lambda storage, location: storage)
+            state = torch.load(model_file_path, map_location=lambda storage, location: storage)
             start_iter = state['iter']
             start_loss = state['current_loss']
 
@@ -89,7 +89,8 @@ class Train(object):
                             if torch.is_tensor(v):
                                 state[k] = v.to(DEVICE)
         if self.opt.new_lr is not None:
-            self.optimizer = AdagradCustom(params, lr=self.opt.new_lr, initial_accumulator_value=config.adagrad_init_acc)
+            self.optimizer = AdagradCustom(params, lr=self.opt.new_lr,
+                                           initial_accumulator_value=config.adagrad_init_acc)
 
         return start_iter, start_loss
 
@@ -115,30 +116,35 @@ class Train(object):
             get_input_from_batch(batch)
         encoder_outputs, encoder_feature, encoder_hidden = self.model.encoder(enc_batch, enc_lens)
         if self.opt.train_mle == "yes":
-            mle_loss = self.train_batch_MLE(encoder_outputs, encoder_hidden,enc_padding_mask, encoder_feature,enc_batch_extend_vocab, extra_zeros, c_t_1, batch, coverage)
+            mle_loss = self.train_batch_MLE(encoder_outputs, encoder_hidden, enc_padding_mask, encoder_feature,
+                                            enc_batch_extend_vocab, extra_zeros, c_t_1, batch, coverage)
         else:
             mle_loss = get_cuda(torch.FloatTensor([0]))
         # --------------RL training-----------------------------------------------------
-        if self.opt.train_rl == "yes":                                                              #perform reinforcement learning training
+        if self.opt.train_rl == "yes":  # perform reinforcement learning training
             # multinomial sampling
-            sample_sents, RL_log_probs = self.train_batch_RL(encoder_outputs, encoder_hidden, enc_padding_mask, encoder_feature, enc_batch_extend_vocab, extra_zeros, c_t_1, batch.art_oovs,coverage, greedy=False)
+            sample_sents, RL_log_probs = self.train_batch_RL(encoder_outputs, encoder_hidden, enc_padding_mask,
+                                                             encoder_feature, enc_batch_extend_vocab, extra_zeros,
+                                                             c_t_1, batch.art_oovs, coverage, greedy=False)
             with torch.autograd.no_grad():
                 # greedy sampling
-                greedy_sents, _ = self.train_batch_RL(encoder_outputs, encoder_hidden, enc_padding_mask, encoder_feature, enc_batch_extend_vocab, extra_zeros, c_t_1, batch.art_oovs, coverage, greedy=True)
+                greedy_sents, _ = self.train_batch_RL(encoder_outputs, encoder_hidden, enc_padding_mask,
+                                                      encoder_feature, enc_batch_extend_vocab, extra_zeros, c_t_1,
+                                                      batch.art_oovs, coverage, greedy=True)
 
             sample_reward = self.reward_function(sample_sents, batch.original_abstracts)
             baseline_reward = self.reward_function(greedy_sents, batch.original_abstracts)
             # if iter%200 == 0:
             #     self.write_to_file(sample_sents, greedy_sents, batch.original_abstracts, sample_reward, baseline_reward, iter)
-            rl_loss = -(sample_reward - baseline_reward) * RL_log_probs                             #Self-critic policy gradient training (eq 15 in https://arxiv.org/pdf/1705.04304.pdf)
+            rl_loss = -(
+                        sample_reward - baseline_reward) * RL_log_probs  # Self-critic policy gradient training (eq 15 in https://arxiv.org/pdf/1705.04304.pdf)
             rl_loss = torch.mean(rl_loss)
 
             batch_reward = torch.mean(sample_reward).item()
         else:
             rl_loss = get_cuda(torch.FloatTensor([0]))
             batch_reward = 0
-        
-        
+
         (self.opt.mle_weight * mle_loss + self.opt.rl_weight * rl_loss).backward()
         self.norm = clip_grad_norm_(self.model.encoder.parameters(), config.max_grad_norm)
         clip_grad_norm_(self.model.decoder.parameters(), config.max_grad_norm)
@@ -148,45 +154,48 @@ class Train(object):
 
         return mle_loss.item(), batch_reward
 
-    
-    def train_batch_MLE(self,encoder_outputs, encoder_hidden,enc_padding_mask, encoder_feature,enc_batch_extend_vocab, extra_zeros, c_t_1, batch, coverage):
+    def train_batch_MLE(self, encoder_outputs, encoder_hidden, enc_padding_mask, encoder_feature,
+                        enc_batch_extend_vocab, extra_zeros, c_t_1, batch, coverage):
         dec_batch, dec_padding_mask, max_dec_len, dec_lens_var, target_batch = \
             get_output_from_batch(batch)
-       
-       
+
         # [B, max(seq_lens), 2*hid_dim], [B*max(seq_lens), 2*hid_dim], tuple([2, B, hid_dim], [2, B, hid_dim])
-        s_t_1 = self.model.reduce_state(encoder_hidden)   # (h,c) = ([1, B, hid_dim], [1, B, hid_dim])
+        s_t_1 = self.model.reduce_state(encoder_hidden)  # (h,c) = ([1, B, hid_dim], [1, B, hid_dim])
         step_losses = []
         for di in range(min(max_dec_len, config.max_dec_steps)):
-            y_t_1 = dec_batch[:, di]      # 摘要的一个单词，batch里的每个句子的同一位置的单词编码
+            y_t_1 = dec_batch[:, di]  # 摘要的一个单词，batch里的每个句子的同一位置的单词编码
             # print("y_t_1:", y_t_1, y_t_1.size())
-            final_dist, s_t_1,  c_t_1, attn_dist, p_gen, next_coverage = self.model.decoder(y_t_1, s_t_1,
-                                                        encoder_outputs, encoder_feature, enc_padding_mask, c_t_1,
-                                                        extra_zeros, enc_batch_extend_vocab, coverage, di)
+            final_dist, s_t_1, c_t_1, attn_dist, p_gen, next_coverage = self.model.decoder(y_t_1, s_t_1,
+                                                                                           encoder_outputs,
+                                                                                           encoder_feature,
+                                                                                           enc_padding_mask, c_t_1,
+                                                                                           extra_zeros,
+                                                                                           enc_batch_extend_vocab,
+                                                                                           coverage, di)
             target = target_batch[:, di]  # 摘要的下一个单词的编码
             # print("target-iter:", target, target.size())
             # print("final_dist:", final_dist, final_dist.size())
             # input("go on>>")
             # final_dist 是词汇表每个单词的概率，词汇表是扩展之后的词汇表，也就是大于预设的50_000
-            gold_probs = torch.gather(final_dist, 1, target.unsqueeze(1)).squeeze()   # 取出目标单词的概率gold_probs
+            gold_probs = torch.gather(final_dist, 1, target.unsqueeze(1)).squeeze()  # 取出目标单词的概率gold_probs
             step_loss = -torch.log(gold_probs + config.eps)  # 最大化gold_probs，也就是最小化step_loss（添加负号）
             if config.is_coverage:
                 step_coverage_loss = torch.sum(torch.min(attn_dist, coverage), 1)
                 step_loss = step_loss + config.cov_loss_wt * step_coverage_loss
                 coverage = next_coverage
-                
+
             step_mask = dec_padding_mask[:, di]
             step_loss = step_loss * step_mask
             step_losses.append(step_loss)
 
         sum_losses = torch.sum(torch.stack(step_losses, 1), 1)
-        batch_avg_loss = sum_losses/dec_lens_var
+        batch_avg_loss = sum_losses / dec_lens_var
         loss = torch.mean(batch_avg_loss)
 
-        
         return loss
-    
-    def train_batch_RL(self,encoder_outputs, encoder_hidden, enc_padding_mask, encoder_feature, enc_batch_extend_vocab, extra_zeros, c_t_1, article_oovs, coverage, greedy):
+
+    def train_batch_RL(self, encoder_outputs, encoder_hidden, enc_padding_mask, encoder_feature, enc_batch_extend_vocab,
+                       extra_zeros, c_t_1, article_oovs, coverage, greedy):
         '''Generate sentences from decoder entirely using sampled tokens as input. These sentences are used for ROUGE evaluation
         Args
         :param enc_out: Outputs of the encoder for all time steps (batch_size, length_input_sequence, 2*hidden_size)
@@ -201,51 +210,61 @@ class Train(object):
         :decoded_strs: List of decoded sentences
         :log_probs: Log probabilities of sampled words
         '''
-        s_t_1 = self.model.reduce_state(encoder_hidden)                                                                        #Decoder hidden states
-        y_t_1 = get_cuda(torch.LongTensor(len(encoder_outputs)).fill_(self.vocab.word2id(data.START_DECODING)))                                     #Input to the decoder                                                              #Used for intra-temporal attention (section 2.1 in https://arxiv.org/pdf/1705.04304.pdf)
-        inds = []                                                                                   #Stores sampled indices for each time step
-        decoder_padding_mask = []                                                                   #Stores padding masks of generated samples
-        log_probs = []                                                                              #Stores log probabilites of generated samples
-        mask = get_cuda(torch.LongTensor(len(encoder_outputs)).fill_(1))                                        #Values that indicate whether [STOP] token has already been encountered; 1 => Not encountered, 0 otherwise
+        s_t_1 = self.model.reduce_state(encoder_hidden)  # Decoder hidden states
+        y_t_1 = get_cuda(torch.LongTensor(len(encoder_outputs)).fill_(self.vocab.word2id(
+            data.START_DECODING)))  # Input to the decoder                                                              #Used for intra-temporal attention (section 2.1 in https://arxiv.org/pdf/1705.04304.pdf)
+        inds = []  # Stores sampled indices for each time step
+        decoder_padding_mask = []  # 存储生成样本的填充掩码 Stores padding masks of generated samples
+        log_probs = []  # Stores log probabilites of generated samples
+        mask = get_cuda(torch.LongTensor(len(encoder_outputs)).fill_(
+            1))  # Values that indicate whether [STOP] token has already been encountered; 1 => Not encountered, 0 otherwise
 
         for t in range(config.max_dec_steps):
-            probs, s_t_1,  c_t_1, attn_dist, p_gen, next_coverage = self.model.decoder(y_t_1, s_t_1,
-                                                        encoder_outputs, encoder_feature, enc_padding_mask, c_t_1,
-                                                        extra_zeros, enc_batch_extend_vocab, coverage, t)
+            probs, s_t_1, c_t_1, attn_dist, p_gen, next_coverage = self.model.decoder(y_t_1, s_t_1,
+                                                                                      encoder_outputs, encoder_feature,
+                                                                                      enc_padding_mask, c_t_1,
+                                                                                      extra_zeros,
+                                                                                      enc_batch_extend_vocab, coverage,
+                                                                                      t)
             if greedy is False:
-                multi_dist = Categorical(probs)
-                y_t_1 = multi_dist.sample()                                                           #perform multinomial sampling
+                multi_dist = Categorical(probs)  # 根据概率分布进行采样
+                y_t_1 = multi_dist.sample()  # perform multinomial sampling
                 log_prob = multi_dist.log_prob(y_t_1)
                 log_probs.append(log_prob)
             else:
-                _, y_t_1 = torch.max(probs, dim=1)                                                        #perform greedy sampling
+                _, y_t_1 = torch.max(probs,
+                                     dim=1)  # 取概率最大的词                                                  #perform greedy sampling
             y_t_1 = y_t_1.detach()
             inds.append(y_t_1)
-            mask_t = get_cuda(torch.zeros(len(encoder_outputs)))                                                #Padding mask of batch for current time step
-            mask_t[mask == 1] = 1                                                                   #If [STOP] is not encountered till previous time step, mask_t = 1 else mask_t = 0
-            mask[(mask == 1) + (y_t_1 == self.vocab.word2id(data.STOP_DECODING)) == 2] = 0                                       #If [STOP] is not encountered till previous time step and current word is [STOP], make mask = 0
+            mask_t = get_cuda(torch.zeros(len(encoder_outputs)))  # Padding mask of batch for current time step
+            mask_t[mask == 1] = 1  # If [STOP] is not encountered till previous time step, mask_t = 1 else mask_t = 0
+            mask[(mask == 1) + (y_t_1 == self.vocab.word2id(
+                data.STOP_DECODING)) == 2] = 0  # If [STOP] is not encountered till previous time step and current word is [STOP], make mask = 0
             decoder_padding_mask.append(mask_t)
-            is_oov = (y_t_1>=config.vocab_size).long()                                                #Mask indicating whether sampled word is OOV
-            y_t_1 = (1-is_oov)*y_t_1 + (is_oov)*self.vocab.word2id(data.UNKNOWN_TOKEN)                                          #Replace OOVs with [UNK] token
+            is_oov = (y_t_1 >= config.vocab_size).long()  # Mask indicating whether sampled word is OOV
+            y_t_1 = (1 - is_oov) * y_t_1 + (is_oov) * self.vocab.word2id(
+                data.UNKNOWN_TOKEN)  # Replace OOVs with [UNK] token
 
         inds = torch.stack(inds, dim=1)
         decoder_padding_mask = torch.stack(decoder_padding_mask, dim=1)
-        if greedy is False:                                                                         #If multinomial based sampling, compute log probabilites of sampled words
+        if greedy is False:  # If multinomial based sampling, compute log probabilites of sampled words
             log_probs = torch.stack(log_probs, dim=1)
-            log_probs = log_probs * decoder_padding_mask                                            #Not considering sampled words with padding mask = 0
-            lens = torch.sum(decoder_padding_mask, dim=1)                                               #Length of sampled sentence
-            log_probs = torch.sum(log_probs, dim=1) / lens  # (bs,)                                     #compute normalizied log probability of a sentence
+            log_probs = log_probs * decoder_padding_mask  # Not considering sampled words with padding mask = 0
+            lens = torch.sum(decoder_padding_mask, dim=1)  # Length of sampled sentence
+            log_probs = torch.sum(log_probs,
+                                  dim=1) / lens  # (bs,)                                     #compute normalizied log probability of a sentence
         decoded_strs = []
         for i in range(len(encoder_outputs)):
             id_list = inds[i].cpu().numpy()
             oovs = article_oovs[i]
-            S = data.outputids2words(id_list, self.vocab, oovs)                                     #Generate sentence corresponding to sampled words
+            S = data.outputids2words(id_list, self.vocab, oovs)  # Generate sentence corresponding to sampled words
             try:
                 end_idx = S.index(data.STOP_DECODING)
                 S = S[:end_idx]
             except ValueError:
                 S = S
-            if len(S) < 2:                                                                           #If length of sentence is less than 2 words, replace it with "xxx"; Avoids setences like "." which throws error while calculating ROUGE
+            if len(
+                    S) < 2:  # If length of sentence is less than 2 words, replace it with "xxx"; Avoids setences like "." which throws error while calculating ROUGE
                 S = ["xxx"]
             S = " ".join(S)
             decoded_strs.append(S)
@@ -266,12 +285,11 @@ class Train(object):
                     print("Error occured at:")
                     print("decoded_sents:", decoded_sents[i])
                     print("original_sents:", original_sents[i])
-                    score = [{"rouge-l":{"f":0.0}}]
+                    score = [{"rouge-l": {"f": 0.0}}]
                 scores.append(score[0])
         rouge_l_f1 = [score["rouge-l"]["f"] for score in scores]
         rouge_l_f1 = get_cuda(torch.FloatTensor(rouge_l_f1))
         return rouge_l_f1
-
 
     def trainIters(self, n_iters):
         # 训练设置，包括
@@ -296,8 +314,7 @@ class Train(object):
 
             if iter_step % 10 == 0:
                 self.summary_writer.flush()
-                
-            
+
             # print_interval = 1000
             if iter_step % 10 == 0:
                 # lr = self.optimizer.state_dict()['param_groups'][0]['lr']
@@ -313,6 +330,7 @@ class Train(object):
             if iter_step % 50 == 0:
                 self.save_model(running_avg_loss, iter_step)
 
+
 def init_print():
     stamp = time.strftime("%Y%m%d_%H%M%S", time.localtime())
     print("时间:{}".format(stamp))
@@ -321,10 +339,12 @@ def init_print():
         if not k.startswith("__"):
             print(":".join([k, str(v)]))
 
+
 def get_cuda(tensor):
     if torch.cuda.is_available():
         tensor = tensor.cuda()
     return tensor
+
 
 if __name__ == '__main__':
     '''
@@ -348,7 +368,8 @@ if __name__ == '__main__':
     parser.add_argument('--new_lr', type=float, default=None)
     opt = parser.parse_args()
     opt.rl_weight = 1 - opt.mle_weight
-    print("Training mle: %s, Training rl: %s, mle weight: %.2f, rl weight: %.2f"%(opt.train_mle, opt.train_rl, opt.mle_weight, opt.rl_weight))
+    print("Training mle: %s, Training rl: %s, mle weight: %.2f, rl weight: %.2f" % (
+    opt.train_mle, opt.train_rl, opt.mle_weight, opt.rl_weight))
     print("intra_encoder:", config.intra_encoder, "intra_decoder:", config.intra_decoder)
     train_processor = Train(opt)
     train_processor.trainIters(config.max_iterations)

@@ -1,7 +1,6 @@
 """
 decode阶段使用 beam search 算法
 """
-# coding:utf-8
 import os
 import sys
 import time
@@ -14,10 +13,10 @@ from data import Vocab
 from model import Model
 from config import USE_CUDA, DEVICE
 from batcher import Batcher, get_input_from_batch
-from utils import write_for_rouge, rouge_eval, rouge_log
+from utils import write_for_rouge, rouge_eval, rouge_log, make_html_safe
 import rouge
+from rouge import Rouge
 import argparse
-
 
 class Beam(object):
     def __init__(self, tokens, log_probs, state, context, coverage):
@@ -44,7 +43,7 @@ class Beam(object):
 
 
 class BeamSearch(object):
-    def __init__(self, model_file_path, type=''):
+    def __init__(self, model_file_path):
         model_name = os.path.basename(model_file_path)
         self._decode_dir = os.path.join(config.log_root, 'decode_%s' % (model_name))
         self._rouge_ref_dir = os.path.join(self._decode_dir, 'rouge_ref')
@@ -55,30 +54,30 @@ class BeamSearch(object):
                 os.mkdir(p)
 
         self.vocab = Vocab(config.vocab_path, config.vocab_size)
-        if(type == 'test'):
-            self.batcher = Batcher(config.test_data_path, self.vocab, mode='decode',
+        self.batcher = Batcher(config.decode_data_path, self.vocab, mode='decode',
                                batch_size=config.beam_size, single_pass=True)
-        else:
-            self.batcher = Batcher(config.decode_data_path, self.vocab, mode='eval',
-                               batch_size=config.beam_size, single_pass=True)
-        time.sleep(5)
+        #time.sleep(5)
 
         self.model = Model(model_file_path, is_eval=True)
+
 
     def sort_beams(self, beams):
         return sorted(beams, key=lambda h: h.avg_log_prob, reverse=True)
 
 
-    def decode(self,model_file_path):
+    def decode(self, model_file_path):
         start = time.time()
         counter = 0
         batch = self.batcher.next_batch()
         decoded_sents = []
         ref_sents = []
         article_sents = []
+        reference_sents = []
+        rouge = Rouge()
         while batch is not None:
             # Run beam search to get best Hypothesis
             best_summary = self.beam_search(batch)
+
 
             # Extract the output ids from the hypothesis and convert back to words
             output_ids = [int(t) for t in best_summary.tokens[1:]]
@@ -92,53 +91,76 @@ class BeamSearch(object):
             except ValueError:
                 decoded_words = decoded_words
 
+            if len(decoded_words) < 2:
+                decoded_words = "xxx"
+            else:
+                decoded_words = " ".join(decoded_words)
+
+            original_abstract_sents = batch.original_abstracts_sents[0][0]
             decoded_sents.append(decoded_words)
-            original_abstract_sents = batch.original_abstracts_sents[0]
             article = batch.original_articles[0]
-            ref_sents.append(original_abstract_sents)
+            reference_sents.append(original_abstract_sents)
+
             article_sents.append(article)
-            
-            write_for_rouge(original_abstract_sents, decoded_words, counter,
-                            self._rouge_ref_dir, self._rouge_dec_dir)
-            
-            
+            #print(original_abstract_sents)
+            #write_for_rouge(batch.original_abstracts_sents[0], decoded_words, counter,
+                            #self._rouge_ref_dir, self._rouge_dec_dir)
             counter += 1
-            if counter % 10 == 0:
+            print('counter:'+str(counter))
+            if counter % 100 == 0:
                 print('%d example in %d sec'%(counter, time.time() - start))
                 start = time.time()
 
             batch = self.batcher.next_batch()
-            print(batch)
 
         print("Decoder has finished reading dataset for single_pass.")
-        load_file = model_file_path
-        if article:
-            self.print_original_predicted(decoded_sents, ref_sents,
-                                          article_sents, load_file)
-        
-        print("Now starting ROUGE eval...")
+        # print("Now starting ROUGE eval...")
         # results_dict = rouge_eval(self._rouge_ref_dir, self._rouge_dec_dir)
         # rouge_log(results_dict, self._decode_dir)
+        ref_sents = [make_html_safe(w) for w in reference_sents]
+        load_file = model_file_path
+        if decoded_sents:
+            self.print_original_predicted(decoded_sents, ref_sents,
+                                          article_sents, load_file)
+
+        print("Now starting ROUGE eval...")
+        #results_dict = rouge_eval(self._rouge_ref_dir, self._rouge_dec_dir)
+        #rouge_log(results_dict, self._decode_dir)
+        #print(decoded_sents)
+       # print(ref_sents)
         scores = rouge.get_scores(decoded_sents, ref_sents)
+        #print(scores)
         rouge_1 = sum([x["rouge-1"]["f"] for x in scores]) / len(scores)
         rouge_2 = sum([x["rouge-2"]["f"] for x in scores]) / len(scores)
         rouge_l = sum([x["rouge-l"]["f"] for x in scores]) / len(scores)
         log_str = " rouge_1:" + "%.4f" % rouge_1 + " rouge_2:" + "%.4f" % rouge_2 + " rouge_l:" + "%.4f" % rouge_l
         results_file = os.path.join(self._decode_dir, "ROUGE_results.txt")
-        print("Writing final ROUGE results to %s..."%(results_file))
+        print("Writing final ROUGE results to %s..." % (results_file))
         with open(results_file, "w") as f:
             f.write(log_str)
-       
+
 
     def print_original_predicted(self, decoded_sents, ref_sents, article_sents,
                                  loadfile):
         filename = "test_" + loadfile.split(".")[0] + ".txt"
-
-        with open(os.path.join(self._rouge_ref_dir, filename), "w") as f:
+        #print(decoded_sents)
+        #print(ref_sents)
+        with open(os.path.join(self._rouge_ref_dir, filename), "w", encoding='utf-8') as f:
             for i in range(len(decoded_sents)):
+                print(ref_sents[i])
+                print(decoded_sents[i])
+                #reference_sents = [make_html_safe(w) for w in ref_sents[i]]
                 f.write("article: " + article_sents[i] + "\n")
                 f.write("ref: " + ref_sents[i] + "\n")
                 f.write("dec: " + decoded_sents[i] + "\n\n")
+                '''
+                for idx, sent in enumerate(decoded_sents[i]):
+                    if(idx == 0):
+                        f.write("dec: ")
+                    f.write(sent + "\n\n") if idx == len(decoded_sents[i]) - 1 else f.write(sent)
+                '''
+                #f.write("ref: " + reference_sents + "\n")
+                #f.write("dec: " + decoded_sents + "\n\n")
 
 
     def beam_search(self, batch):
@@ -237,6 +259,7 @@ class BeamSearch(object):
         return beams_sorted[0]
 
 if __name__ == '__main__':
+
     parser = argparse.ArgumentParser()
     parser.add_argument("--task",
                         type=str,
