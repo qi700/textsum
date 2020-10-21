@@ -150,7 +150,7 @@ class Batch(object):
                                   dtype=np.int32)
         self.target_batch = np.zeros((self.batch_size, config.max_dec_steps),
                                      dtype=np.int32)
-        # self.dec_padding_mask = np.zeros((self.batch_size, config.max_dec_steps), dtype=np.float32)
+        self.dec_padding_mask = np.zeros((self.batch_size, config.max_dec_steps), dtype=np.float32)
         self.dec_lens = np.zeros((self.batch_size), dtype=np.int32)
 
         # Fill in the numpy arrays
@@ -158,8 +158,8 @@ class Batch(object):
             self.dec_batch[i, :] = ex.dec_input[:]
             self.target_batch[i, :] = ex.target[:]
             self.dec_lens[i] = ex.dec_len
-            # for j in range(ex.dec_len):
-            #   self.dec_padding_mask[i][j] = 1
+            for j in range(ex.dec_len):
+                self.dec_padding_mask[i][j] = 1
 
     def store_orig_strings(self, example_list):
         self.original_articles = [ex.original_article
@@ -192,9 +192,9 @@ class Batcher(object):
             self._bucketing_cache_size = 1  # only load one batch's worth of examples before bucketing; this essentially means no bucketing
             self._finished_reading = False  # this will tell us when we're finished reading the dataset
         else:
-            self._num_example_q_threads = 1  #16 # num threads to fill example queue
-            self._num_batch_q_threads = 1  #4  # num threads to fill batch queue
-            self._bucketing_cache_size = 1  #100 # how many batches-worth of examples to load into cache before bucketing
+            self._num_example_q_threads = 16  #16 # num threads to fill example queue
+            self._num_batch_q_threads = 4  #4  # num threads to fill batch queue
+            self._bucketing_cache_size = 100  #100 # how many batches-worth of examples to load into cache before bucketing
 
         # Start the threads that load the queues
         self._example_q_threads = []
@@ -282,7 +282,7 @@ class Batcher(object):
             logger.info('Bucket queue size: %i, Input queue size: %i',
                         self._batch_queue.qsize(), self._example_queue.qsize())
 
-            time.sleep(60)
+            time.sleep(2)
             for idx, t in enumerate(self._example_q_threads):
                 if not t.is_alive():  # if the thread is dead
                     logger.error(

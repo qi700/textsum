@@ -1,6 +1,6 @@
 import os
 import sys
-
+from log import logger
 # 添加project目录至环境变量
 base_dir = os.path.abspath(os.path.dirname(__file__))
 print(base_dir)
@@ -247,7 +247,7 @@ class Train(object):
 
         inds = torch.stack(inds, dim=1)
         decoder_padding_mask = torch.stack(decoder_padding_mask, dim=1)
-        if greedy is False:  # If multinomial based sampling, compute log probabilites of sampled words
+        if greedy is False:  # If multinomial based sampling, compute log probabilites of sampled words      
             log_probs = torch.stack(log_probs, dim=1)
             log_probs = log_probs * decoder_padding_mask  # Not considering sampled words with padding mask = 0
             lens = torch.sum(decoder_padding_mask, dim=1)  # Length of sampled sentence
@@ -311,7 +311,8 @@ class Train(object):
             mle_total += mle_loss
             r_total += r
             count += 1
-
+            print("iter step.",str(iter_step))
+            logger.info("iter step.%i",iter_step)
             if iter_step % 10 == 0:
                 self.summary_writer.flush()
 
@@ -320,10 +321,12 @@ class Train(object):
                 # lr = self.optimizer.state_dict()['param_groups'][0]['lr']
                 print('steps %d, seconds for %d steps: %.2f, loss: %f' % (iter_step, 10,
                                                                           time.time() - start, mle_loss))
+                logger.info('steps %d, seconds for %d steps: %.2f, loss: %f', iter_step, 10, time.time() - start, mle_loss)
                 start = time.time()
                 mle_avg = mle_total / count
                 r_avg = r_total / count
-                print("iter:", iter, "mle_loss:", "%.3f" % mle_avg, "reward:", "%.4f" % r_avg)
+                print("iter:", iter_step, "mle_loss:", "%.3f" % mle_avg, "reward:", "%.4f" % r_avg)
+                logger.info('iter %d, mle_loss: %.2f, reward: %f',iter_step, mle_avg, r_avg)
                 count = mle_total = r_total = 0
 
             # 5000次迭代就保存一下模型
