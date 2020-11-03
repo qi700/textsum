@@ -133,11 +133,22 @@ class BeamSearch(object):
         rouge_1 = sum([x["rouge-1"]["f"] for x in scores]) / len(scores)
         rouge_2 = sum([x["rouge-2"]["f"] for x in scores]) / len(scores)
         rouge_l = sum([x["rouge-l"]["f"] for x in scores]) / len(scores)
+        rouge_1_r = sum([x["rouge-1"]["r"] for x in scores]) / len(scores)
+        rouge_2_r = sum([x["rouge-2"]["r"] for x in scores]) / len(scores)
+        rouge_l_r = sum([x["rouge-l"]["r"] for x in scores]) / len(scores)
+        rouge_1_p = sum([x["rouge-1"]["p"] for x in scores]) / len(scores)
+        rouge_2_p = sum([x["rouge-2"]["p"] for x in scores]) / len(scores)
+        rouge_l_p = sum([x["rouge-l"]["p"] for x in scores]) / len(scores)
         log_str = " rouge_1:" + "%.4f" % rouge_1 + " rouge_2:" + "%.4f" % rouge_2 + " rouge_l:" + "%.4f" % rouge_l
+        log_str_r = " rouge_1_r:" + "%.4f" % rouge_1_r + " rouge_2_r:" + "%.4f" % rouge_2_r + " rouge_l_r:" + "%.4f" % rouge_l_r
+        log_str_p = " rouge_1_p:" + "%.4f" % rouge_1_p + " rouge_2_p:" + "%.4f" % rouge_2_p + " rouge_l_p:" + "%.4f" % rouge_l_p
         results_file = os.path.join(self._decode_dir, "ROUGE_results.txt")
         print("Writing final ROUGE results to %s..." % (results_file))
         with open(results_file, "w") as f:
-            f.write(log_str)
+            f.write(log_str+'\n')
+            f.write(log_str_r + '\n')
+            f.write(log_str_p + '\n')
+
 
 
     def print_original_predicted(self, decoded_sents, ref_sents, article_sents,
